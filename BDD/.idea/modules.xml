@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/BDD.iml" filepath="$PROJECT_DIR$/.idea/BDD.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../socket/.idea/socket.iml" filepath="$PROJECT_DIR$/../socket/.idea/socket.iml" />
     </modules>
   </component>
 </project>
