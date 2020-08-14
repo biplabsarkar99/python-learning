@@ -1,0 +1,27 @@
+'''
+Example setting up the daemon threads
+A daemon thread runs without blocking the main program from exiting.
+And when main program exits, associated daemon threads are killed too.
+We pass the extra argument daemon=True while creating Thread a. This is how we specify a thread as daemon thread.
+The program exits even though daemon thread was running.
+'''
+
+import threading
+import time
+
+def print_work_a():
+    print('Starting of thread :', threading.currentThread().name)
+    time.sleep(2)
+    print('Finishing of thread :', threading.currentThread().name)
+
+
+def print_work_b():
+    print('Starting of thread :', threading.currentThread().name)
+    print('Finishing of thread :', threading.currentThread().name)
+
+
+a = threading.Thread(target=print_work_a, name='Thread-a', daemon=True)
+b = threading.Thread(target=print_work_b, name='Thread-b')
+
+a.start()
+b.start()
