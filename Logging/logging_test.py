@@ -12,5 +12,5 @@ import logging
 # Best Practice :
 # Instantiate loggers in a library using the __name__ global variable as
 # the logging module creates a hierarchy of loggers using dot notation, so using __name__ ensures no name collisions.
-logging.getLogger(__name__).addHandler(logging.NullHandler())
+print(logging.getLogger(__name__).addHandler(logging.NullHandler()))
 
