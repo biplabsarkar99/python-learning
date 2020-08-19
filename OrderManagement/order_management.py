@@ -42,7 +42,7 @@ class Limit:
             order.prev_order = self.tail_order
             self.tail_order = order
         self.size += 1
-        self.total_volume += order.quantity
+        self.total_volume += int(order.quantity)
 
 
 class LimitTree:
@@ -242,18 +242,20 @@ class Book:
         :param order: Order instance
         :return:
         """
+        print(order.__dict__)
         if order.side == 'B':
+            print("{} in BUY LEVELS.".format(self.buy_levels))
             if order.price in self.buy_levels:
                 limit = self.buy_levels[order.price]
                 if limit.size == 0:
                     self.buy_tree.size += 1
                 limit.add(order)
-                self.buy_map[order.uid] = order
+                self.buy_map[order.orderID] = order
                 order.parent_limit = limit
             else:
                 limit = Limit(order.price)
                 limit.add(order)
-                self.buy_map[order.uid] = order
+                self.buy_map[order.orderID] = order
                 self.buy_tree.insert(limit)
                 self.buy_tree.size += 1
                 self.buy_levels[order.price] = limit
@@ -262,6 +264,7 @@ class Book:
                 self.highest_buy = order.price
         else:
             if order.price in self.sell_levels:
+                print("{} in SELL LEVELS.".format(self.sell_levels))
                 limit = self.sell_levels[order.price]
                 if limit.size == 0:
                     self.sell_tree.size += 1
@@ -303,6 +306,8 @@ if __name__ == '__main__':
     order_temp_sell = []
     orders = {}
     orderBook = Book()
+    count = 1
+    print(orderBook.__dict__)
     n = int(input("Enter the number of orders: "))
     for i in range(n):
         order_list.append(input().split(","))
@@ -321,6 +326,7 @@ if __name__ == '__main__':
                                          "Price": order[6],
                                          "Quantity": order[7]}
                 order = Order(order[0], order[1], order[2], order[3], order[4], order[5], order[6], order[7])
+                print(order.__dict__)
                 orderBook.add_order(order)
 
         elif order[0] == 'A':
@@ -343,7 +349,8 @@ if __name__ == '__main__':
                 print("{} - CancelReject  - 404 - Order does not exist".format(order[1]))
             else:
                 print("{} - CancelAccept".format(order[1]))
-                del orders[int(order[1])]
+                book.reduce_order(fields[2], int(fields[3]))
+            # del orders[int(order[1])]
 
         elif order[0] == 'M':
             for order in orders:
@@ -376,3 +383,18 @@ if __name__ == '__main__':
                                                               ))
                 else:
                     pass
+    count += 1
+
+    print(order.__dict__)
+    print(orderBook.__dict__)
+
+
+
+
+
+
+
+
+
+
+
