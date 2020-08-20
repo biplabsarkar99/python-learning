@@ -126,9 +126,10 @@ class OrderBook(object):
                 print("Incoming_order: {}".format(incoming_order))
                 trade = self.execute_match(incoming_order, book_order)
                 self.book_entry.append(trade)
-                incoming_order.size = max(0, int(incoming_order.quantity) - int(trade.quantity))
+                print(int(incoming_order.quantity) - int(trade.quantity))
+                incoming_order.size = max(0, abs(int(incoming_order.quantity) - int(trade.quantity)))
                 print("1: {}".format(incoming_order.size))
-                book_order.size = max(0, int(book_order.quantity) - int(trade.quantity))
+                book_order.size = max(0, abs(int(book_order.quantity) - int(trade.quantity)))
                 print("2: {}".format(book_order.size))
                 self.trades.put(trade)
                 print(self.trades)
@@ -140,8 +141,40 @@ class OrderBook(object):
         if incoming_order.size > 0:
             incoming_order.pending = incoming_order.quantity - incoming_order.size
             incoming_order.traded = incoming_order.size
-            same_side = self.bids if incoming_order.side == 'B' else self.offers
-            same_side[incoming_order.price].append(incoming_order)
+            if incoming_order.side == 'B':
+                same_side = self.bids
+                same_side[incoming_order.price].append(incoming_order)
+                for p in self.offers:
+                    for o in self.offers[p]:
+                        o.traded = o.traded + trade.quantity
+                        o.pending = o.quantity - o.traded
+            else:
+                same_side = self.offers
+                same_side[incoming_order.price].append(incoming_order)
+                for p in self.bids:
+                    if p == incoming_order.price:
+                        for o in self.bids[p]:
+                            o.traded = o.traded + trade.quantity
+                            o.pending = o.quantity - o.traded
+
+        elif incoming_order.size == 0:
+            incoming_order.traded = trade.quantity
+            if incoming_order.side == 'B':
+                same_side = self.bids
+                same_side[incoming_order.price].append(incoming_order)
+                for p in self.offers:
+                    for o in self.offers[p]:
+                        o.traded = o.traded + trade.quantity
+                        o.pending = o.quantity - o.traded
+            else:
+                same_side = self.offers
+                same_side[incoming_order.price].append(incoming_order)
+                for p in self.bids:
+                    if p == incoming_order.price:
+                        for o in self.bids[p]:
+                            o.traded = o.traded + trade.quantity
+                            o.pending = o.quantity - o.traded
+
 
     def execute_match(self, incoming_order, book_order):
         trade_size = min(incoming_order.quantity, book_order.quantity)
@@ -175,8 +208,8 @@ class OrderBook(object):
         for i, price in enumerate(self.bid_prices):
             print('{0}) Price={1}, Total units={2}, Traded={3}, Pending= {4}'.format(i + 1, self.bid_prices[i],
                                                                                      self.bid_sizes[i],
-                                                                                     self.pending_bids[i],
-                                                                                     self.traded_bids[i]))
+                                                                                     self.traded_bids[i],
+                                                                                     self.pending_bids[i]))
 
     def show_transactions(self):
         for entry in self.book_entry:
@@ -233,6 +266,7 @@ if __name__ == '__main__':
 
     while not ob.unprocessed_orders.empty():
         ob.process_order(ob.unprocessed_orders.get())
+        ob.show_book()
 
     print("####################################################")
     print('Final transactions:')
