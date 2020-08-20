@@ -1,8 +1,145 @@
-from collections import deque
+import enum
+import queue
+import time
+from collections import defaultdict
 
 
-class Order:
-    def __init__(self, action, orderID, timestamp, symbol, orderType, side, price, quantity):
+class OrderBook(object):
+    def __init__(self):
+        """ Orders stored as two default dicts of {price:[orders at price]}
+            Orders sent to OrderBook through OrderBook.unprocessed_orders queue
+        """
+        self.bid_prices = []
+        self.bid_sizes = []
+        self.offer_prices = []
+        self.offer_sizes = []
+        self.bids = defaultdict(list)
+        self.offers = defaultdict(list)
+        self.unprocessed_orders = queue.Queue()
+        self.trades = queue.Queue()
+        self.order_id = 0
+        self.order_offers = defaultdict(list)
+
+    @property
+    def max_bid(self):
+        if self.bids:
+            return max(self.bids.keys())
+        else:
+            return 0.
+
+    @property
+    def min_offer(self):
+        if self.offers:
+            return min(self.offers.keys())
+        else:
+            return float('inf')
+
+    def process_order(self, incoming_order):
+        """ Main processing function. If incoming_order matches delegate to process_match."""
+        if incoming_order.action == 'N':
+            print("Creating the new order for order {}".format(incoming_order.orderID))
+            if incoming_order.side == 'B':
+                if self.offers and incoming_order.price >= self.min_offer:
+                    self.process_match(incoming_order)
+                else:
+                    self.order_offers[int(incoming_order.orderID)].append(incoming_order)
+                    self.bids[incoming_order.price].append(incoming_order)
+            else:
+                if incoming_order.price <= self.max_bid and self.bids:
+                    self.process_match(incoming_order)
+                else:
+                    self.order_offers[int(incoming_order.orderID)].append(incoming_order)
+                    self.offers[incoming_order.price].append(incoming_order)
+        elif incoming_order.action == 'A':
+            print("Need to append the existing order")
+            print(self.order_offers)
+            for o in self.order_offers:
+                if o == incoming_order.orderID:
+                    self.order_offers[int(incoming_order.orderID)] = incoming_order
+        elif incoming_order.action == 'X':
+            print("Cancel an existing order")
+            for o in self.order_offers:
+                if o == incoming_order.orderID:
+                    del self.order_offers[int(incoming_order.orderID)]
+        elif incoming_order.action == 'M':
+            print("Match the existing orders")
+            for o in self.order_offers:
+                incoming_order = self.order_offers[o]
+                incoming_order.timestamp = incoming_order.timestamp
+                incoming_order.order_id = incoming_order.orderID
+                if incoming_order.side == 'B':
+                    if int(incoming_order.price) >= self.min_offer and self.offers:
+                        self.process_match(incoming_order)
+                    else:
+                        #self.order_offers[int(incoming_order.orderID)].append(incoming_order)
+                        self.bids[incoming_order.price].append(incoming_order)
+                else:
+                    if int(incoming_order.price) <= self.max_bid and self.bids:
+                        self.process_match(incoming_order)
+                    else:
+                        #self.order_offers[int(incoming_order.orderID)].append(incoming_order)
+                        self.offers[incoming_order.price].append(incoming_order)
+
+    def process_match(self, incoming_order):
+        """ Match an incoming order against orders on the other side of the book, in price-time priority."""
+        levels = self.bids if incoming_order.side == 'S' else self.offers
+        prices = sorted(levels.keys(), reverse=(incoming_order.side == 'S'))
+
+        def price_doesnt_match(book_price):
+            if incoming_order.side == 'B':
+                return incoming_order.price < book_price
+            else:
+                return incoming_order.price > book_price
+
+        for (i, price) in enumerate(prices):
+            if (incoming_order.quantity == 0) or (price_doesnt_match(price)):
+                break
+            orders_at_level = levels[price]
+            for (j, book_order) in enumerate(orders_at_level):
+                if incoming_order.quantity == 0:
+                    break
+                print(incoming_order)
+                print(book_order)
+                trade = self.execute_match(incoming_order, book_order)
+                incoming_order.size = max(0, int(incoming_order.quantity) - int(trade.quantity))
+                book_order.size = max(0, int(book_order.quantity) - int(trade.quantity))
+                self.trades.put(trade)
+            levels[price] = [o for o in orders_at_level if o.size > 0]
+            if len(levels[price]) == 0:
+                levels.pop(price)
+        # If the incoming order has not been completely matched, add the remainder to the order book
+        if incoming_order.size > 0:
+            same_side = self.bids if incoming_order.side == 'B' else self.offers
+            same_side[incoming_order.price].append(incoming_order)
+
+    def execute_match(self, incoming_order, book_order):
+        trade_size = min(incoming_order.quantity, book_order.quantity)
+        return Trade(incoming_order.side, book_order.price, trade_size, incoming_order.order_id, book_order.order_id)
+
+    def book_summary(self):
+        self.bid_prices = sorted(self.bids.keys(), reverse=True)
+        self.offer_prices = sorted(self.offers.keys())
+        self.bid_sizes = [sum(int(o.quantity) for o in self.bids[p]) for p in self.bid_prices]
+        self.offer_sizes = [sum(int(o.quantity) for o in self.offers[p]) for p in self.offer_prices]
+
+    def show_book(self):
+        self.book_summary()
+        print('Sell side:')
+        if len(self.offer_prices) == 0:
+            print('EMPTY')
+        else:
+            for i, price in reversed(list(enumerate(self.offer_prices))):
+                print('{0}) Price={1}, Total units={2}'.format(i + 1, self.offer_prices[i], self.offer_sizes[i]))
+        print('Buy side:')
+        if len(self.bid_prices) == 0:
+            print('EMPTY')
+        for i, price in enumerate(self.bid_prices):
+            print('{0}) Price={1}, Total units={2}'.format(i + 1, self.bid_prices[i], self.bid_sizes[i]))
+        print()
+
+
+class Order(object):
+    def __init__(self, action=None, orderID=None, timestamp=None, symbol=None, orderType=None, side=None, price=None, quantity=None):
         self.action = action
         self.orderID = orderID
         self.timestamp = timestamp
@@ -11,390 +148,46 @@ class Order:
         self.side = side
         self.price = price
         self.quantity = quantity
-        self.next_order = None
-        self.prev_order = None
-        self.parent_limit = None
+
+    def __repr__(self):
+        return '{0} is {1} {2} units at {3}'.format(self.orderID, self.side, self.quantity, self.price)
 
 
-class Limit:
-    def __str__(self):
-        left = 'None' if self.left_child is None else str(self.left_child.price)
-        right = 'None' if self.right_child is None else str(self.right_child.price)
-        return left + '--' + str(self.price) + '--' + right
+class Trade(object):
+    def __init__(self, incoming_side, incoming_price, trade_size, incoming_order_id, book_order_id):
+        self.side = incoming_side
+        self.price = incoming_price
+        self.quantity = trade_size
+        self.incoming_order_id = incoming_order_id
+        self.book_order_id = book_order_id
 
-    def __init__(self, price):
-        self.price = price
-        self.size = 0
-        self.total_volume = 0
-        self.height = 1
-        self.parent = None
-        self.left_child = None
-        self.right_child = None
-        self.head_order = None
-        self.tail_order = None
-
-    def add(self, order):
-        if not self.head_order:
-            self.head_order = order
-            self.tail_order = order
-        else:
-            self.tail_order.next_order = order
-            order.prev_order = self.tail_order
-            self.tail_order = order
-        self.size += 1
-        self.total_volume += int(order.quantity)
+    def __repr__(self):
+        return 'Executed: {0} {1} units at {2}'.format(self.side, self.quantity, self.price)
 
 
-class LimitTree:
-    def __init__(self):
-        self.root = None
-        self.size = 0
-
-    def insert(self, limit):
-        if not self.root:
-            self.root = limit
-        else:
-            ptr = self.root
-            while True:
-                if limit.price < ptr.price:
-                    if ptr.left_child is None:
-                        ptr.left_child = limit
-                        ptr.left_child.parent = ptr
-                        new = ptr.left_child
-                        break
-                    else:
-                        ptr = ptr.left_child
-                        continue
-                else:
-                    if ptr.right_child is None:
-                        ptr.right_child = limit
-                        ptr.right_child.parent = ptr
-                        new = ptr.right_child
-                        break
-                    else:
-                        ptr = ptr.right_child
-                        continue
-            self.update_height(new)  # update heights of nodes up the path to the root
-            x = y = z = new
-            while x is not None:
-                if abs(self.height(x.left_child) - self.height(x.right_child)) <= 1:
-                    z = y
-                    y = x
-                    x = x.parent
-                else:
-                    break
-            if x is not None:
-                self.rebalance(x, y, z)
-
-    def rebalance(self, x, y, z):
-        """
-        http://www.mathcs.emory.edu/~cheung/Courses/323/Syllabus/Trees/AVL-insert.html
-        """
-        z_is_left_child = z is y.left_child
-        y_is_left_child = y is x.left_child
-        if z_is_left_child and y_is_left_child:
-            a = z
-            b = y
-            c = x
-            t0 = z.left_child
-            t1 = z.right_child
-            t2 = y.right_child
-            t3 = x.right_child
-        elif not z_is_left_child and y_is_left_child:
-            a = y
-            b = z
-            c = x
-            t0 = y.left_child
-            t1 = z.left_child
-            t2 = z.right_child
-            t3 = x.right_child
-        elif z_is_left_child and not y_is_left_child:
-            a = x
-            b = z
-            c = y
-            t0 = x.left_child
-            t1 = z.left_child
-            t2 = z.right_child
-            t3 = y.right_child
-        else:
-            a = x
-            b = y
-            c = z
-            t0 = x.left_child
-            t1 = y.left_child
-            t2 = z.left_child
-            t3 = z.right_child
-
-        if x is self.root:
-            self.root = b
-            self.root.parent = None
-        else:
-            x_parent = x.parent
-            if x is x_parent.left_child:
-                b.parent = x_parent
-                x_parent.left_child = b
-            else:
-                b.parent = x_parent
-                x_parent.right_child = b
-        b.left_child = a
-        a.parent = b
-        b.right_child = c
-        c.parent = b
-
-        a.left_child = t0
-        if t0 is not None:
-            t0.parent = a
-        a.right_child = t1
-        if t1 is not None:
-            t1.parent = a
-
-        c.left_child = t2
-        if t2 is not None:
-            t2.parent = c
-        c.right_child = t3
-        if t3 is not None:
-            t3.parent = c
-        self.update_height(a)
-        self.update_height(c)
-
-    def update_height(self, node):
-        """
-        http://www.mathcs.emory.edu/~cheung/Courses/323/Syllabus/Trees/AVL-insert.html#tri-node
-        """
-        while node is not None:
-            node.height = 1 + max(self.height(node.left_child), self.height(node.right_child))
-            node = node.parent
-
-    def height(self, node):
-        """
-        https://stackoverflow.com/questions/575772/the-best-way-to-calculate-the-height-in-a-binary-search-tree-balancing-an-avl
-        """
-        if node is None:
-            return 0
-        else:
-            return node.height
-
-    def successor(self, node):
-        """Returns the inorder successor of the node
-        :param node: Limit instance
-        :return: In-order successor of input if it exists or None otherwise
-        """
-        if node is None:
-            return None
-        if node.right_child is not None:
-            succ = node.right_child
-            while succ.left_child is not None:
-                succ = succ.left_child
-            return succ
-        else:
-            p = node.parent
-            while p is not None:
-                if node is not p.right_child:
-                    break
-                node = p
-                p = p.parent
-            return p
-
-    def predecessor(self, node):
-        """Returns the inorder predecessor of the node
-        :param node: Limit instance
-        :return: In-order predecessor of input if its exists or None otherwise
-        """
-        if node is None:
-            return None
-        if node.left_child is not None:
-            pred = node.left_child
-            while pred.right_child is not None:
-                pred = pred.right_child
-            return pred
-        else:
-            p = node.parent
-            while p is not None:
-                if node is not p.left_child:
-                    break
-                node = p
-                p = p.parent
-            return p
-
-
-class Book:
-    buy_tree = LimitTree()
-    sell_tree = LimitTree()
-    lowest_sell = None
-    highest_buy = None
-    buy_map = {}
-    sell_map = {}
-    buy_levels = {}
-    sell_levels = {}
-
-    def update_book(self):
-        """Update the order book, executing any trades that are now possible
-        :param:
-        :return:
-        """
-        while self.lowest_sell is not None and self.highest_buy is not None and self.lowest_sell <= self.highest_buy:
-            sell = self.sell_levels[self.lowest_sell].head_order
-            buy = self.buy_levels[self.highest_buy].head_order
-            self.execute_trade(sell, buy)
-
-    def add_order(self, order):
-        """Add an order to the correct tree at the correct Limit level
-        :param order: Order instance
-        :return:
-        """
-        print(order.__dict__)
-        if order.side == 'B':
-            print("{} in BUY LEVELS.".format(self.buy_levels))
-            if order.price in self.buy_levels:
-                limit = self.buy_levels[order.price]
-                if limit.size == 0:
-                    self.buy_tree.size += 1
-                limit.add(order)
-                self.buy_map[order.orderID] = order
-                order.parent_limit = limit
-            else:
-                limit = Limit(order.price)
-                limit.add(order)
-                self.buy_map[order.orderID] = order
-                self.buy_tree.insert(limit)
-                self.buy_tree.size += 1
-                self.buy_levels[order.price] = limit
-                order.parent_limit = self.buy_levels[order.price]
-            if self.highest_buy is None or order.price > self.highest_buy:
-                self.highest_buy = order.price
-        else:
-            if order.price in self.sell_levels:
-                print("{} in SELL LEVELS.".format(self.sell_levels))
-                limit = self.sell_levels[order.price]
-                if limit.size == 0:
-                    self.sell_tree.size += 1
-                limit.add(order)
-                self.sell_map[order.uid] = order
-                order.parent_limit = self.sell_levels[order.price]
-            else:
-                limit = Limit(order.price)
-                limit.add(order)
-                self.sell_map[order.uid] = order
-                self.sell_tree.insert(limit)
-                self.sell_tree.size += 1
-                self.sell_levels[order.price] = limit
-                order.parent_limit = self.sell_levels[order.price]
-            if self.lowest_sell is None or order.price < self.lowest_sell:
-                self.lowest_sell = order.price
-        self.update_book()
-
-
-# Main function to start the test
 if __name__ == '__main__':
-    '''
-    The input command will have the following components
-    Action : N,A,X,M,Q
-    OrderID: An integer value
-    Timestamp: An integer value 
-    Symbol :Varying length string containing only alphabets
-    OrderType : M,L,I
-    Side: Buy(B) or Sell(S)
-    Price: A float value 0.99 if order type is M, the price is given exactly to the two places of decimal 
-    Quantity: An integer value
-
-    ###
-    Action,OrderID,Timestamp,Symbol,OrderType,Side,Price,Quantity
-    ###
-    '''
+    print('Taking the order from the user')
     order_list = []
-    order_temp_buy = []
-    order_temp_sell = []
-    orders = {}
-    orderBook = Book()
-    count = 1
-    print(orderBook.__dict__)
+    orders = []
+    ob = OrderBook()
     n = int(input("Enter the number of orders: "))
     for i in range(n):
         order_list.append(input().split(","))
 
     for order in order_list:
-        if order[0] == 'N':
-            if int(order[1]) in orders:
-                print("{} - AmendReject  - 303 - Invalid order details".format(order[1]))
-            else:
-                print("{} - Accept".format(order[1]))
-                orders[int(order[1])] = {"OrderId": order[1],
-                                         "Timestamp": order[2],
-                                         "Symbol": order[3],
-                                         "OrderType": order[4],
-                                         "Side": order[5],
-                                         "Price": order[6],
-                                         "Quantity": order[7]}
-                order = Order(order[0], order[1], order[2], order[3], order[4], order[5], order[6], order[7])
-                print(order.__dict__)
-                orderBook.add_order(order)
+        if order[0] == 'M':
+            orders.append(Order(order[0]))
+        else:
+            orders.append(Order(order[0], order[1], order[2], order[3], order[4], order[5], int(order[6]), int(order[7])))
 
-        elif order[0] == 'A':
-            if int(order[1]) not in orders:
-                print("{} - AmendReject  - 404 - Order does not exist".format(order[0]))
-            else:
-                if orders[int(order[1])]["Side"] != order[5]:
-                    print("{} - AmendReject  - 101 - Invalid amendment details".format(order[0]))
-                else:
-                    print("{} - AmendAccept".format(order[0]))
-                    orders[int(order[1])] = {"OrderId": order[1],
-                                             "Timestamp": order[2],
-                                             "Symbol": order[3],
-                                             "OrderType": order[4],
-                                             "Price": order[6],
-                                             "Quantity": order[7]}
+    print('We have received these orders:')
+    for order in orders:
+        print(order)
+        ob.unprocessed_orders.put(order)
 
-        elif order[0] == 'X':
-            if int(order[1]) not in orders:
-                print("{} - CancelReject  - 404 - Order does not exist".format(order[1]))
-            else:
-                print("{} - CancelAccept".format(order[1]))
-                book.reduce_order(fields[2], int(fields[3]))
-            # del orders[int(order[1])]
+    while not ob.unprocessed_orders.empty():
+        ob.process_order(ob.unprocessed_orders.get())
 
-        elif order[0] == 'M':
-            for order in orders:
-                # print(order)
-                # print(orders[order]['Side'])
-                # print(orders[order])
-                if orders[order]['Side'] == 'B':
-                    order_temp_buy.append(orders[order])
-                elif orders[order]['Side'] == 'S':
-                    order_temp_sell.append(orders[order])
-                else:
-                    print("Invalid Option.")
-
-        # print("###########################################################")
-        # print(order_temp_sell)
-        # print(order_temp_buy)
-        # print("###########################################################")
-        for order_buy in order_temp_buy:
-            for order_sell in order_temp_sell:
-                if order_buy['Symbol'] == order_sell['Symbol'] and order_buy['Price'] == order_sell['Price']:
-                    print("{}|{},{},{},{}|{},{},{},{}".format(order_buy['Symbol'],
-                                                              order_buy['OrderId'],
-                                                              order_buy['OrderType'],
-                                                              order_buy['Quantity'],
-                                                              order_buy['Price'],
-                                                              order_sell['Price'],
-                                                              order_sell['Quantity'],
-                                                              order_sell['OrderType'],
-                                                              order_sell['OrderId']
-                                                              ))
-                else:
-                    pass
-    count += 1
-
-    print(order.__dict__)
-    print(orderBook.__dict__)
-
-
-
-
-
-
-
-
-
-
+    print('Resulting order book:')
+    ob.show_book()
 
