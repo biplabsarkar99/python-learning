@@ -66,6 +66,26 @@ class OrderBook(object):
                     else:
                         return False
 
+    def update_order(self, order_dict, incoming_order):
+        for order in order_dict.values():
+            for o in order:
+                if o.orderID == incoming_order.orderID:
+                    if o.price != incoming_order.price or o.side != incoming_order.side:
+                        self.book_entry.append("{} - AmendReject  - 101 - Invalid amendment details"
+                                               .format(incoming_order.orderID))
+                        return
+                    else:
+                        self.book_entry.append("{} - AmendAccept".format(incoming_order.orderID))
+                        o.quantity = incoming_order.quantity
+                        return
+
+    def cancel_order(self, order_dict, incoming_order):
+        for order in order_dict:
+            for o in order_dict[order]:
+                if o.orderID == incoming_order.orderID:
+                    del order_dict[order]
+                    break
+
     def process_order(self, incoming_order):
         """ Main processing function. If incoming_order matches delegate to process_match."""
         if incoming_order.action == 'N':
@@ -86,52 +106,25 @@ class OrderBook(object):
                 else:
                     self.order_offers[int(incoming_order.orderID)].append(incoming_order)
                     self.offers[incoming_order.price].append(incoming_order)
+
         elif incoming_order.action == 'A':
             if not self.validate_append_order(incoming_order):
                 self.book_entry.append(
                     "{} - AmendReject  - 101 - Invalid amendment details".format(incoming_order.orderID))
                 return
-
             if incoming_order.side == 'B':
-                for order in self.bids.values():
-                    for o in order:
-                        if o.orderID == incoming_order.orderID:
-                            if o.price != incoming_order.price or o.side != incoming_order.side:
-                                self.book_entry.append("{} - AmendReject  - 101 - Invalid amendment details"
-                                                       .format(incoming_order.orderID))
-                                return
-                            else:
-                                self.book_entry.append("{} - AmendAccept".format(incoming_order.orderID))
-                                o.quantity = incoming_order.quantity
-                                return
+                self.update_order(self.bids, incoming_order)
             else:
-                for order in self.offers.values():
-                    for o in order:
-                        if o.orderID == incoming_order.orderID:
-                            if o.price != incoming_order.price or o.side != incoming_order.side:
-                                self.book_entry.append(
-                                    "{} - AmendReject  - 101 - Invalid amendment details".format(order[0]))
-                                return
-                            else:
-                                self.book_entry.append("{} - AmendAccept".format(incoming_order.orderID))
-                                o.quantity = incoming_order.quantity
-                                return
+                self.update_order(self.offers, incoming_order)
 
         elif incoming_order.action == 'X':
             print("Cancelling the order")
-            for order in self.bids:
-                print("Now here 1")
-                for o in self.bids[order]:
-                    if o.orderID == incoming_order.orderID:
-                        del self.bids[order]
-                        break
-
-            for order in self.offers:
-                for o in self.offers[order]:
-                    if o.orderID == incoming_order.orderID:
-                        print("Here1")
-                        del self.offers[order]
-                        break
+            if not self.cancel_order(self.bids, incoming_order):
+                if not self.cancel_order(self.offers, incoming_order):
+                    self.book_entry.append(
+                        "{} - CancelReject  - 404 - Order does not exist".format(incoming_order.orderID)
+                    return
+            self.book_entry.append("{} - CancelAccept".format(incoming_order.orderID))
 
         elif incoming_order.action == 'M':
             print("Match the existing orders")
