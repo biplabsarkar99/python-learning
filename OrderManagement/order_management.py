@@ -11,14 +11,19 @@ class OrderBook(object):
         """
         self.bid_prices = []
         self.bid_sizes = []
+        self.pending_bids = []
+        self.traded_bids = []
         self.offer_prices = []
         self.offer_sizes = []
+        self.pending_offers = []
+        self.traded_offers = []
         self.bids = defaultdict(list)
         self.offers = defaultdict(list)
         self.unprocessed_orders = queue.Queue()
         self.trades = queue.Queue()
         self.order_id = 0
         self.order_offers = defaultdict(list)
+        self.book_entry = []
 
     @property
     def max_bid(self):
@@ -34,10 +39,26 @@ class OrderBook(object):
         else:
             return float('inf')
 
+    def validate_new_order(self, incoming_order):
+        try:
+            int(incoming_order.orderID)
+            int(incoming_order.timestamp)
+            float(incoming_order.price)
+            int(incoming_order.quantity)
+            (incoming_order.symbol).isalpha()
+            return True
+        except Exception as e:
+            return False
+
     def process_order(self, incoming_order):
         """ Main processing function. If incoming_order matches delegate to process_match."""
         if incoming_order.action == 'N':
             print("Creating the new order for order {}".format(incoming_order.orderID))
+            if not self.validate_new_order(incoming_order):
+                self.book_entry.append("{} - Reject  - 303 - Invalid order details".format(incoming_order.orderID))
+                return
+            else:
+                self.book_entry.append(("{} - Accept".format(incoming_order.orderID)))
             if incoming_order.side == 'B':
                 if self.offers and incoming_order.price >= self.min_offer:
                     self.process_match(incoming_order)
@@ -45,11 +66,12 @@ class OrderBook(object):
                     self.order_offers[int(incoming_order.orderID)].append(incoming_order)
                     self.bids[incoming_order.price].append(incoming_order)
             else:
-                if incoming_order.price <= self.max_bid and self.bids:
+                if self.bids and incoming_order.price <= self.max_bid:
                     self.process_match(incoming_order)
                 else:
                     self.order_offers[int(incoming_order.orderID)].append(incoming_order)
                     self.offers[incoming_order.price].append(incoming_order)
+
         elif incoming_order.action == 'A':
             print("Need to append the existing order")
             print(self.order_offers)
@@ -83,8 +105,9 @@ class OrderBook(object):
     def process_match(self, incoming_order):
         """ Match an incoming order against orders on the other side of the book, in price-time priority."""
         levels = self.bids if incoming_order.side == 'S' else self.offers
+        print("Levels : \n {}".format(levels))
         prices = sorted(levels.keys(), reverse=(incoming_order.side == 'S'))
-
+        print("Prices : \n {} ".format(prices))
         def price_doesnt_match(book_price):
             if incoming_order.side == 'B':
                 return incoming_order.price < book_price
@@ -95,32 +118,45 @@ class OrderBook(object):
             if (incoming_order.quantity == 0) or (price_doesnt_match(price)):
                 break
             orders_at_level = levels[price]
+            print("Orders at level: \n {}".format(orders_at_level))
             for (j, book_order) in enumerate(orders_at_level):
                 if incoming_order.quantity == 0:
                     break
-                print(incoming_order)
-                print(book_order)
+                print("Book_order: {}".format(book_order))
+                print("Incoming_order: {}".format(incoming_order))
                 trade = self.execute_match(incoming_order, book_order)
+                self.book_entry.append(trade)
                 incoming_order.size = max(0, int(incoming_order.quantity) - int(trade.quantity))
+                print("1: {}".format(incoming_order.size))
                 book_order.size = max(0, int(book_order.quantity) - int(trade.quantity))
+                print("2: {}".format(book_order.size))
                 self.trades.put(trade)
+                print(self.trades)
             levels[price] = [o for o in orders_at_level if o.size > 0]
             if len(levels[price]) == 0:
                 levels.pop(price)
+
         # If the incoming order has not been completely matched, add the remainder to the order book
         if incoming_order.size > 0:
+            incoming_order.pending = incoming_order.quantity - incoming_order.size
+            incoming_order.traded = incoming_order.size
             same_side = self.bids if incoming_order.side == 'B' else self.offers
             same_side[incoming_order.price].append(incoming_order)
 
     def execute_match(self, incoming_order, book_order):
         trade_size = min(incoming_order.quantity, book_order.quantity)
-        return Trade(incoming_order.side, book_order.price, trade_size, incoming_order.order_id, book_order.order_id)
+        print("Trade Size: {}".format(trade_size))
+        return Trade(incoming_order.side, book_order.price, trade_size, incoming_order.orderID, book_order.orderID)
 
     def book_summary(self):
         self.bid_prices = sorted(self.bids.keys(), reverse=True)
         self.offer_prices = sorted(self.offers.keys())
         self.bid_sizes = [sum(int(o.quantity) for o in self.bids[p]) for p in self.bid_prices]
+        self.pending_bids = [sum(int(o.pending) for o in self.bids[p]) for p in self.bid_prices]
+        self.traded_bids = [sum(int(o.traded) for o in self.bids[p]) for p in self.bid_prices]
         self.offer_sizes = [sum(int(o.quantity) for o in self.offers[p]) for p in self.offer_prices]
+        self.pending_offers = [sum(int(o.pending) for o in self.offers[p]) for p in self.offer_prices]
+        self.traded_offers = [sum(int(o.traded)  for o in self.offers[p])for p in self.offer_prices]
 
     def show_book(self):
         self.book_summary()
@@ -129,14 +165,22 @@ class OrderBook(object):
             print('EMPTY')
         else:
             for i, price in reversed(list(enumerate(self.offer_prices))):
-                print('{0}) Price={1}, Total units={2}'.format(i + 1, self.offer_prices[i], self.offer_sizes[i]))
+                print('{0}) Price={1}, Total units={2}, Traded={3}, Pending= {4}'.format(i + 1, self.offer_prices[i],
+                                                                                         self.offer_sizes[i],
+                                                                                         self.traded_offers[i],
+                                                                                         self.pending_offers[i]))
         print('Buy side:')
         if len(self.bid_prices) == 0:
             print('EMPTY')
         for i, price in enumerate(self.bid_prices):
-            print('{0}) Price={1}, Total units={2}'.format(i + 1, self.bid_prices[i], self.bid_sizes[i]))
-        print()
+            print('{0}) Price={1}, Total units={2}, Traded={3}, Pending= {4}'.format(i + 1, self.bid_prices[i],
+                                                                                     self.bid_sizes[i],
+                                                                                     self.pending_bids[i],
+                                                                                     self.traded_bids[i]))
 
+    def show_transactions(self):
+        for entry in self.book_entry:
+            print(entry)
 
 class Order(object):
     def __init__(self, action=None, orderID=None, timestamp=None, symbol=None, orderType=None, side=None, price=None, quantity=None):
@@ -148,9 +192,11 @@ class Order(object):
         self.side = side
         self.price = price
         self.quantity = quantity
+        self.traded = 0
+        self.pending = 0
 
     def __repr__(self):
-        return '{0} is {1} {2} units at {3}'.format(self.orderID, self.side, self.quantity, self.price)
+        return 'Order Id {0} is {1} {2} units at {3}'.format(self.orderID, self.side, self.quantity, self.price)
 
 
 class Trade(object):
@@ -162,7 +208,7 @@ class Trade(object):
         self.book_order_id = book_order_id
 
     def __repr__(self):
-        return 'Executed: {0} {1} units at {2}'.format(self.side, self.quantity, self.price)
+        return 'Executed: {0} {1} units at {2} for order {3}'.format(self.side, self.quantity, self.price, self.incoming_order_id)
 
 
 if __name__ == '__main__':
@@ -178,7 +224,7 @@ if __name__ == '__main__':
         if order[0] == 'M':
             orders.append(Order(order[0]))
         else:
-            orders.append(Order(order[0], order[1], order[2], order[3], order[4], order[5], int(order[6]), int(order[7])))
+            orders.append(Order(order[0], order[1], order[2], order[3], order[4], order[5], float(order[6]), int(order[7])))
 
     print('We have received these orders:')
     for order in orders:
@@ -188,6 +234,11 @@ if __name__ == '__main__':
     while not ob.unprocessed_orders.empty():
         ob.process_order(ob.unprocessed_orders.get())
 
-    print('Resulting order book:')
+    print("####################################################")
+    print('Final transactions:')
+    ob.show_transactions()
+    print("####################################################")
+    print("Final Order Book:")
     ob.show_book()
+    print("####################################################")
 
