@@ -3,7 +3,8 @@ import queue
 import time
 from collections import defaultdict
 from collections import namedtuple
-
+import logging
+from logging.config import fileConfig
 
 class OrderBook(object):
     def __init__(self):
@@ -119,7 +120,7 @@ class OrderBook(object):
                 self.update_order(self.offers, incoming_order)
 
         elif incoming_order.action == 'X':
-            print("Cancelling the order")
+            logger.info("Cancelling the order")
             if not self.cancel_order(self.bids , incoming_order):
                 if not self.cancel_order(self.offers, incoming_order):
                     self.book_entry.append("{} - CancelReject  - 404 - Order does not exist".format(incoming_order.orderID))
@@ -127,7 +128,7 @@ class OrderBook(object):
             self.book_entry.append("{} - CancelAccept".format(incoming_order.orderID))
 
         elif incoming_order.action == 'M':
-            print("Match the existing orders")
+            logger.info("Match the existing orders")
             for o in self.order_offers:
                 incoming_order = self.order_offers[o]
                 incoming_order.timestamp = incoming_order.timestamp
@@ -214,7 +215,7 @@ class OrderBook(object):
 
     def execute_match(self, incoming_order, book_order):
         trade_size = min(incoming_order.quantity, book_order.quantity)
-        print("Trade Size: {}".format(trade_size))
+        logger.info("Trade Size: {}".format(trade_size))
         return Trade(incoming_order.side, book_order.price, trade_size, incoming_order.orderID, book_order.orderID)
 
     def book_summary(self):
@@ -229,20 +230,20 @@ class OrderBook(object):
 
     def show_book(self):
         self.book_summary()
-        print('Sell side:')
+        logger.info('Sell side:')
         if len(self.offer_prices) == 0:
-            print('EMPTY')
+            logger.info('EMPTY')
         else:
             for i, price in reversed(list(enumerate(self.offer_prices))):
-                print('{0}) Price={1}, Total units={2}, Traded={3}, Pending= {4}'.format(i + 1, self.offer_prices[i],
+                logger.info('{0}) Price={1}, Total units={2}, Traded={3}, Pending= {4}'.format(i + 1, self.offer_prices[i],
                                                                                          self.offer_sizes[i],
                                                                                          self.traded_offers[i],
                                                                                          self.pending_offers[i]))
-        print('Buy side:')
+        logger.info('Buy side:')
         if len(self.bid_prices) == 0:
-            print('EMPTY')
+            logger.info('EMPTY')
         for i, price in enumerate(self.bid_prices):
-            print('{0}) Price={1}, Total units={2}, Traded={3}, Pending= {4}'.format(i + 1, self.bid_prices[i],
+            logger.info('{0}) Price={1}, Total units={2}, Traded={3}, Pending= {4}'.format(i + 1, self.bid_prices[i],
                                                                                      self.bid_sizes[i],
                                                                                      self.traded_bids[i],
                                                                                      self.pending_bids[i]))
@@ -293,8 +294,13 @@ if __name__ == '__main__':
     Price: A float value 0.99 if order type is M, the price is given exactly to the two places of decimal 
     Quantity: An integer value
     '''
+    # importing a logging file which defines two handlers - File and console for the logger
+    # The console has the DEBUG
+    fileConfig('logging_config_2.ini')
+    logger = logging.getLogger(__name__)
+
     new_order_components = ['Action', 'OrderID', 'Timestamp', 'Symbol', 'OrderType', 'Side', 'Price','Quantity']
-    print('Taking the order from the user')
+    logger.info('Taking the order from the user')
     order_list = []
     orders = []
     order_dict = {}
@@ -318,7 +324,6 @@ if __name__ == '__main__':
         elif order_dict[order].Action == 'X':
             orders.append(order_dict[order].Action, order_dict[order].orderID)
         else:
-            print(NewOrder.Action)
             orders.append(Order(order_dict[order].Action,
                                 order_dict[order].OrderID,
                                 order_dict[order].Timestamp,
@@ -328,7 +333,7 @@ if __name__ == '__main__':
                                 order_dict[order].Price,
                                 order_dict[order].Quantity))
 
-    print('We have received these orders:')
+    logger.info('We have received these orders:')
     for order in orders:
         print(order)
         ob.unprocessed_orders.put(order)
@@ -337,11 +342,11 @@ if __name__ == '__main__':
         ob.process_order(ob.unprocessed_orders.get())
         ob.show_book()
 
-    print("####################################################")
-    print('Final transactions:')
+    logger.info("####################################################")
+    logger.info('Final transactions:')
     ob.show_transactions()
-    print("####################################################")
-    print("Final Order Book:")
+    logger.info("####################################################")
+    logger.info("Final Order Book:")
     ob.show_book()
-    print("####################################################")
+    logger.info("####################################################")
 
