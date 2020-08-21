@@ -2,6 +2,7 @@ import enum
 import queue
 import time
 from collections import defaultdict
+from collections import namedtuple
 
 
 class OrderBook(object):
@@ -66,20 +67,21 @@ class OrderBook(object):
                     else:
                         return False
 
-    def update_order(self, order_dict, incoming_order):
+
+    def update_order(self, order_dict , incoming_order):
         for order in order_dict.values():
             for o in order:
-                if o.orderID == incoming_order.orderID:
-                    if o.price != incoming_order.price or o.side != incoming_order.side:
+                 if o.orderID == incoming_order.orderID:
+                     if o.price != incoming_order.price or o.side != incoming_order.side:
                         self.book_entry.append("{} - AmendReject  - 101 - Invalid amendment details"
-                                               .format(incoming_order.orderID))
+                                                .format(incoming_order.orderID))
                         return
-                    else:
-                        self.book_entry.append("{} - AmendAccept".format(incoming_order.orderID))
-                        o.quantity = incoming_order.quantity
-                        return
+                     else:
+                         self.book_entry.append("{} - AmendAccept".format(incoming_order.orderID))
+                         o.quantity = incoming_order.quantity
+                         return
 
-    def cancel_order(self, order_dict, incoming_order):
+    def cancel_order(self,order_dict, incoming_order):
         for order in order_dict:
             for o in order_dict[order]:
                 if o.orderID == incoming_order.orderID:
@@ -109,8 +111,7 @@ class OrderBook(object):
 
         elif incoming_order.action == 'A':
             if not self.validate_append_order(incoming_order):
-                self.book_entry.append(
-                    "{} - AmendReject  - 101 - Invalid amendment details".format(incoming_order.orderID))
+                self.book_entry.append("{} - AmendReject  - 101 - Invalid amendment details".format(incoming_order.orderID))
                 return
             if incoming_order.side == 'B':
                 self.update_order(self.bids, incoming_order)
@@ -119,10 +120,9 @@ class OrderBook(object):
 
         elif incoming_order.action == 'X':
             print("Cancelling the order")
-            if not self.cancel_order(self.bids, incoming_order):
+            if not self.cancel_order(self.bids , incoming_order):
                 if not self.cancel_order(self.offers, incoming_order):
-                    self.book_entry.append(
-                        "{} - CancelReject  - 404 - Order does not exist".format(incoming_order.orderID)
+                    self.book_entry.append("{} - CancelReject  - 404 - Order does not exist".format(incoming_order.orderID))
                     return
             self.book_entry.append("{} - CancelAccept".format(incoming_order.orderID))
 
@@ -211,6 +211,7 @@ class OrderBook(object):
                             o.traded = o.traded + trade.quantity
                             o.pending = o.quantity - o.traded
 
+
     def execute_match(self, incoming_order, book_order):
         trade_size = min(incoming_order.quantity, book_order.quantity)
         print("Trade Size: {}".format(trade_size))
@@ -224,7 +225,7 @@ class OrderBook(object):
         self.traded_bids = [sum(int(o.traded) for o in self.bids[p]) for p in self.bid_prices]
         self.offer_sizes = [sum(int(o.quantity) for o in self.offers[p]) for p in self.offer_prices]
         self.pending_offers = [sum(int(o.pending) for o in self.offers[p]) for p in self.offer_prices]
-        self.traded_offers = [sum(int(o.traded) for o in self.offers[p]) for p in self.offer_prices]
+        self.traded_offers = [sum(int(o.traded)  for o in self.offers[p])for p in self.offer_prices]
 
     def show_book(self):
         self.book_summary()
@@ -250,10 +251,8 @@ class OrderBook(object):
         for entry in self.book_entry:
             print(entry)
 
-
 class Order(object):
-    def __init__(self, action=None, orderID=None, timestamp=None, symbol=None, orderType=None, side=None, price=None,
-                 quantity=None):
+    def __init__(self, action=None, orderID=None, timestamp=None, symbol=None, orderType=None, side=None, price=None, quantity=None):
         self.action = action
         self.orderID = orderID
         self.timestamp = timestamp
@@ -278,27 +277,56 @@ class Trade(object):
         self.book_order_id = book_order_id
 
     def __repr__(self):
-        return 'Executed: {0} {1} units at {2} for order {3}'.format(self.side, self.quantity, self.price,
-                                                                     self.incoming_order_id)
+        return 'Executed: {0} {1} units at {2} for order {3}'.format(self.side, self.quantity, self.price, self.incoming_order_id)
 
 
 if __name__ == '__main__':
+    '''
+    This is the main function from where we will be starting the code by taking the inputs from the user.
+    The input command will have the following components
+    Action : N,A,X,M
+    OrderID: An integer value
+    Timestamp: An integer value 
+    Symbol :Varying length string containing only alphabets
+    OrderType : M(Market),L(Limit),I(IOS)
+    Side: Buy(B) or Sell(S)
+    Price: A float value 0.99 if order type is M, the price is given exactly to the two places of decimal 
+    Quantity: An integer value
+    '''
+    new_order_components = ['Action', 'OrderID', 'Timestamp', 'Symbol', 'OrderType', 'Side', 'Price','Quantity']
     print('Taking the order from the user')
     order_list = []
     orders = []
+    order_dict = {}
     ob = OrderBook()
     n = int(input("Enter the number of orders: "))
+    NewOrder = namedtuple('NewOrder', new_order_components)
     for i in range(n):
-        order_list.append(input().split(","))
+        user_input = input().split(",")
+        order_dict[i] = NewOrder(user_input[0],
+                                 user_input[1],
+                                 user_input[2],
+                                 user_input[3],
+                                 user_input[4],
+                                 user_input[5],
+                                 user_input[6],
+                                 user_input[7])
 
-    for order in order_list:
-        if order[0] == 'M':
-            orders.append(Order(order[0]))
-        elif order[0] == 'X':
-            orders.append(Order(order[0], order[1]))
+    for order in order_dict:
+        if order_dict[order].Action == 'M':
+            orders.append(order_dict[order].Action)
+        elif order_dict[order].Action == 'X':
+            orders.append(order_dict[order].Action, order_dict[order].orderID)
         else:
-            orders.append(
-                Order(order[0], order[1], order[2], order[3], order[4], order[5], float(order[6]), int(order[7])))
+            print(NewOrder.Action)
+            orders.append(Order(order_dict[order].Action,
+                                order_dict[order].OrderID,
+                                order_dict[order].Timestamp,
+                                order_dict[order].Symbol,
+                                order_dict[order].OrderType,
+                                order_dict[order].Side,
+                                order_dict[order].Price,
+                                order_dict[order].Quantity))
 
     print('We have received these orders:')
     for order in orders:
