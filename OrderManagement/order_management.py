@@ -306,32 +306,32 @@ if __name__ == '__main__':
     order_dict = {}
     ob = OrderBook()
     n = int(input("Enter the number of orders: "))
-    NewOrder = namedtuple('NewOrder', new_order_components)
+    NewOrder = namedtuple('NewOrder', new_order_components, defaults=(None,) * len(new_order_components))
     for i in range(n):
         user_input = input().split(",")
-        order_dict[i] = NewOrder(user_input[0],
-                                 user_input[1],
-                                 user_input[2],
-                                 user_input[3],
-                                 user_input[4],
-                                 user_input[5],
-                                 user_input[6],
-                                 user_input[7])
+        if user_input[0] == 'M':
+            order_dict[i] = NewOrder(user_input[0])
+        elif user_input[0] == 'X':
+            order_dict[i] = NewOrder(user_input[0], user_input[1])
+        else:
+            order_dict[i] = NewOrder(user_input[0],
+                                     user_input[1],
+                                     user_input[2],
+                                     user_input[3],
+                                     user_input[4],
+                                     user_input[5],
+                                     user_input[6],
+                                     user_input[7])
 
     for order in order_dict:
-        if order_dict[order].Action == 'M':
-            orders.append(order_dict[order].Action)
-        elif order_dict[order].Action == 'X':
-            orders.append(order_dict[order].Action, order_dict[order].orderID)
-        else:
-            orders.append(Order(order_dict[order].Action,
-                                order_dict[order].OrderID,
-                                order_dict[order].Timestamp,
-                                order_dict[order].Symbol,
-                                order_dict[order].OrderType,
-                                order_dict[order].Side,
-                                order_dict[order].Price,
-                                order_dict[order].Quantity))
+        orders.append(Order(order_dict[order].Action,
+                            order_dict[order].OrderID,
+                            order_dict[order].Timestamp,
+                            order_dict[order].Symbol,
+                            order_dict[order].OrderType,
+                            order_dict[order].Side,
+                            order_dict[order].Price,
+                            order_dict[order].Quantity))
 
     logger.info('We have received these orders:')
     for order in orders:
