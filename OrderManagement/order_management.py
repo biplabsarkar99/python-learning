@@ -1,6 +1,4 @@
-import enum
 import queue
-import time
 from collections import defaultdict
 from collections import namedtuple
 import logging
@@ -89,13 +87,15 @@ class OrderBook(object):
                     del order_dict[order]
                     break
 
-    def process_order(self, incoming_order):
+    def process_order(self, incoming_order, logger = None):
         """ Main processing function. If incoming_order matches delegate to process_match."""
         if incoming_order.action == 'N':
             if not self.validate_new_order(incoming_order):
+                logger.error("{} - Reject  - 303 - Invalid order details".format(incoming_order.orderID))
                 self.book_entry.append("{} - Reject  - 303 - Invalid order details".format(incoming_order.orderID))
                 return
             else:
+                logger.info("{} - Accept".format(incoming_order.orderID))
                 self.book_entry.append(("{} - Accept".format(incoming_order.orderID)))
             if incoming_order.side == 'B':
                 if self.offers and incoming_order.price >= self.min_offer:
@@ -148,6 +148,7 @@ class OrderBook(object):
         """ Match an incoming order against orders on the other side of the book, in price-time priority."""
         levels = self.bids if incoming_order.side == 'S' else self.offers
         prices = sorted(levels.keys(), reverse=(incoming_order.side == 'S'))
+        print(prices)
 
         def price_doesnt_match(book_price):
             if incoming_order.side == 'B':
@@ -298,8 +299,9 @@ if __name__ == '__main__':
     # The console has the DEBUG
     fileConfig('logging_config_2.ini')
     logger = logging.getLogger(__name__)
-
-    new_order_components = ['Action', 'OrderID', 'Timestamp', 'Symbol', 'OrderType', 'Side', 'Price','Quantity']
+    new_order_components = ['Action', 'OrderID', 'Timestamp', 'Symbol', 'OrderType', 'Side', 'Price', 'Quantity']
+    cancel_order_components = ['Action', 'OrderID', 'Timestamp']
+    modify_order_components = ['Action']
     logger.info('Taking the order from the user')
     order_list = []
     orders = []
@@ -307,31 +309,35 @@ if __name__ == '__main__':
     ob = OrderBook()
     n = int(input("Enter the number of orders: "))
     NewOrder = namedtuple('NewOrder', new_order_components, defaults=(None,) * len(new_order_components))
+    ModifyOrder = namedtuple('ModifyOrder', modify_order_components, defaults=(None,) * len(modify_order_components))
+    CancelOrder = namedtuple('CancelOrder', cancel_order_components, defaults=(None,) * len(cancel_order_components))
     for i in range(n):
         user_input = input().split(",")
+        print(user_input)
         if user_input[0] == 'M':
-            order_dict[i] = NewOrder(user_input[0])
+            order_dict[i] = CancelOrder(user_input)
         elif user_input[0] == 'X':
-            order_dict[i] = NewOrder(user_input[0], user_input[1])
+            order_dict[i] = ModifyOrder(user_input)
         else:
-            order_dict[i] = NewOrder(user_input[0],
-                                     user_input[1],
-                                     user_input[2],
-                                     user_input[3],
-                                     user_input[4],
-                                     user_input[5],
-                                     user_input[6],
-                                     user_input[7])
+            order_dict[i] = NewOrder._make(user_input)
+            print(order_dict[i])
 
     for order in order_dict:
-        orders.append(Order(order_dict[order].Action,
-                            order_dict[order].OrderID,
-                            order_dict[order].Timestamp,
-                            order_dict[order].Symbol,
-                            order_dict[order].OrderType,
-                            order_dict[order].Side,
-                            order_dict[order].Price,
-                            order_dict[order].Quantity))
+        if order_dict[order].Action != 'M':
+            orders.append(Order(order_dict[order].Action))
+        elif order_dict[order].Action != 'X':
+            orders.append(Order(order_dict[order].Action,
+                                order_dict[order].OrderID,
+                                order_dict[order].Timestamp))
+        else:
+            orders.append(Order(order_dict[order].Action,
+                                order_dict[order].OrderID,
+                                order_dict[order].Timestamp,
+                                order_dict[order].Symbol,
+                                order_dict[order].OrderType,
+                                order_dict[order].Side,
+                                order_dict[order].Price,
+                                order_dict[order].Quantity))
 
     logger.info('We have received these orders:')
     for order in orders:
@@ -339,7 +345,7 @@ if __name__ == '__main__':
         ob.unprocessed_orders.put(order)
 
     while not ob.unprocessed_orders.empty():
-        ob.process_order(ob.unprocessed_orders.get())
+        ob.process_order(ob.unprocessed_orders.get(), logger)
         ob.show_book()
 
     logger.info("####################################################")
@@ -349,4 +355,3 @@ if __name__ == '__main__':
     logger.info("Final Order Book:")
     ob.show_book()
     logger.info("####################################################")
-
