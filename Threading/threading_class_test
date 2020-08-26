@@ -1,0 +1,39 @@
+"""
+Exploring Threading as a subclass
+"""
+
+import threading
+import time
+
+class SubClassThread(threading.Thread):
+    """
+    passed the argument threading.Thread to inherit the same.
+    """
+    def __init__(self, name, delay):
+        threading.Thread.__init__(self)
+        self.name = name
+        self.delay = delay
+
+    def thread_delay(self, thread_name, delay):
+        count = 0
+        while count < 3:
+            time.sleep(delay)
+            count += 1
+            print(thread_name, '-------->', time.time())
+
+    def run(self):
+        print('Starting Thread:', self.name)
+        self.thread_delay(self.name,self.delay)
+        print('Execution of Thread:', self.name, 'is complete!')
+
+
+t1 = SubClassThread('t1', 1)
+t2 = SubClassThread('t2', 3)
+
+t1.start()
+t2.start()
+
+t1.join()
+t2.join()
+
+print("Thread execution is complete!")
