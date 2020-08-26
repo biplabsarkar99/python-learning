@@ -8,6 +8,7 @@ NOTE:
 2. We can also delete the existing file during the setup phase of the test suite run.
 
 File: logging_config_3.ini
+https://realpython.com/python-logging/
 The file specifies the config for the logger which is being used in the file 
 logging_module_inherited.py to output the logs to both the console and the file stream
 We have here used the FileHandler so the File is getting appended everytime.
